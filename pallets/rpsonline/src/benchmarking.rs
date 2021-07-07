@@ -1,11 +1,11 @@
-//! Benchmarking setup for pallet-template
+//! Benchmarking setup for pallet-rpsonline
 
 use super::*;
 
 use frame_system::RawOrigin;
 use frame_benchmarking::{benchmarks, whitelisted_caller, impl_benchmark_test_suite};
 #[allow(unused)]
-use crate::Pallet as Template;
+use crate::Pallet as RPSOnline;
 
 benchmarks! {
 	do_something {
@@ -18,7 +18,7 @@ benchmarks! {
 }
 
 impl_benchmark_test_suite!(
-	Template,
+	RPSOnline,
 	crate::mock::new_test_ext(),
 	crate::mock::Test,
 );

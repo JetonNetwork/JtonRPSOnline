@@ -23,7 +23,7 @@ runtime-benchmarks = [
     'frame-system/runtime-benchmarks',
     'hex-literal',
     'pallet-balances/runtime-benchmarks',
-    'pallet-template/runtime-benchmarks',
+    'pallet-rpsonline/runtime-benchmarks',
     'pallet-timestamp/runtime-benchmarks',
     'sp-runtime/runtime-benchmarks',
 ]
@@ -38,7 +38,8 @@ std = [
     'pallet-grandpa/std',
     'pallet-randomness-collective-flip/std',
     'pallet-sudo/std',
-    'pallet-template/std',
+    'pallet-rpsonline/std',
+    'pallet-matchmaker/std',
     'pallet-timestamp/std',
     'pallet-transaction-payment-rpc-runtime-api/std',
     'pallet-transaction-payment/std',
@@ -132,9 +133,15 @@ git = 'https://github.com/paritytech/substrate.git'
 tag = 'monthly-2021-07'
 version = '3.0.0'
 
-[dependencies.pallet-template]
+[dependencies.pallet-rpsonline]
 default-features = false
-path = '../pallets/template'
+path = '../pallets/rpsonline'
+version = '3.0.0'
+
+[dependencies.pallet-matchmaker]
+default-features = false
+git = 'https://github.com/JetonNetwork/pallet-jton-matchmaker.git'
+tag = 'monthly-2021-07'
 version = '3.0.0'
 
 [dependencies.pallet-timestamp]
