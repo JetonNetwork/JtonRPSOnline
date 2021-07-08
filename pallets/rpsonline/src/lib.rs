@@ -4,8 +4,22 @@
 /// Learn more about FRAME and the core library of Substrate FRAME pallets:
 /// <https://substrate.dev/docs/en/knowledgebase/runtime/frame>
 
+use codec::{Encode, Decode};
+use frame_support::{
+//	log,
+	traits::{Randomness, LockIdentifier, schedule::{Named, DispatchTime}},
+};
+use sp_runtime::{
+	traits::{Hash, Dispatchable, TrailingZeroInput}
+};
+use sp_std::vec::{
+	Vec
+};
 use pallet_matchmaker::MatchFunc;
 
+//use log::info;
+
+// Re-export pallet items so that they can be accessed from the crate namespace.
 pub use pallet::*;
 
 #[cfg(test)]
@@ -31,6 +45,15 @@ pub mod pallet {
 		/// Because this pallet emits events, it depends on the runtime's definition of an event.
 		type Event: From<Event<Self>> + IsType<<Self as frame_system::Config>::Event>;
 
+		/// The generator used to supply randomness to contracts through `seal_random`.
+		type Randomness: Randomness<Self::Hash, Self::BlockNumber>;
+
+		type Proposal: Parameter + Dispatchable<Origin=Self::Origin> + From<Call<Self>>;
+
+		type Scheduler: Named<Self::BlockNumber, Self::Proposal, Self::PalletsOrigin>;
+
+		type PalletsOrigin: From<frame_system::RawOrigin<Self::AccountId>>;
+
 		type MatchMaker: MatchFunc<Self::AccountId>;
 	}
 
@@ -45,6 +68,41 @@ pub mod pallet {
 	// Learn more about declaring storage items:
 	// https://substrate.dev/docs/en/knowledgebase/runtime/storage#declaring-storage-items
 	pub type Something<T> = StorageValue<_, u32>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn founder_key)]
+	pub type FounderKey<T: Config> = StorageValue<_, T::AccountId>;
+
+	// Default value for Nonce
+	#[pallet::type_value]
+	pub fn NonceDefault<T: Config>() -> u64 { 0 }
+	// Nonce used for generating a different seed each time.
+	#[pallet::storage]
+	pub type Nonce<T: Config> = StorageValue<_, u64, ValueQuery, NonceDefault<T>>;
+
+	// The genesis config type.
+	#[pallet::genesis_config]
+	pub struct GenesisConfig<T: Config> {
+		pub founder_key: T::AccountId,
+	}
+
+	// The default value for the genesis config type.
+	#[cfg(feature = "std")]
+	impl<T: Config> Default for GenesisConfig<T> {
+		fn default() -> Self {
+			Self {
+				founder_key: Default::default(),
+			}
+		}
+	}
+
+	// The build of genesis for the pallet.
+	#[pallet::genesis_build]
+	impl<T: Config> GenesisBuild<T> for GenesisConfig<T> {
+		fn build(&self) {
+			<FounderKey<T>>::put(&self.founder_key);
+		}
+	}
 
 	// Pallets use events to inform users when important changes are made.
 	// https://substrate.dev/docs/en/knowledgebase/runtime/events
@@ -107,5 +165,27 @@ pub mod pallet {
 				},
 			}
 		}
+	}
+}
+
+impl<T: Config> Pallet<T> {
+
+	/// Update nonce once used. 
+	fn encode_and_update_nonce(
+	) -> Vec<u8> {
+		let nonce = <Nonce<T>>::get();
+		<Nonce<T>>::put(nonce.wrapping_add(1));
+		nonce.encode()
+	}
+
+	/// Generates a random hash out of a seed.
+	fn generate_random_hash(
+		phrase: &[u8], 
+		sender: T::AccountId
+	) -> T::Hash {
+		let (seed, _) = T::Randomness::random(phrase);
+		let seed = <[u8; 32]>::decode(&mut TrailingZeroInput::new(seed.as_ref()))
+			.expect("input is padded with zeroes; qed");
+		return (seed, &sender, Self::encode_and_update_nonce()).using_encoded(T::Hashing::hash);
 	}
 }

@@ -2,10 +2,22 @@ use super::*;
 use crate as pallet_rpsonline;
 
 use sp_core::H256;
-use frame_support::parameter_types;
-use sp_runtime::{
-	traits::{BlakeTwo256, IdentityLookup}, testing::Header,
+
+use frame_support::{
+	parameter_types,
+	traits::{OnInitialize, OnFinalize},
+	weights::Weight,
 };
+
+use frame_support_test::TestRandomness;
+
+use sp_runtime::{
+	BuildStorage,
+	testing::Header,
+	traits::{BlakeTwo256, IdentityLookup},
+	Perbill,
+};
+use frame_system::{EnsureRoot};
 
 type UncheckedExtrinsic = frame_system::mocking::MockUncheckedExtrinsic<Test>;
 type Block = frame_system::mocking::MockBlock<Test>;
@@ -18,14 +30,17 @@ frame_support::construct_runtime!(
 		UncheckedExtrinsic = UncheckedExtrinsic,
 	{
 		System: frame_system::{Pallet, Call, Config, Storage, Event<T>},
+		Scheduler: pallet_scheduler::{Pallet, Call, Storage, Config, Event<T>},
 		MatchMaker: pallet_matchmaker::{Pallet, Call, Storage, Event<T>},
-		RPSOnline: pallet_rpsonline::{Pallet, Call, Storage, Event<T>},
+		RPSOnline: pallet_rpsonline::{Pallet, Call, Config<T>, Storage, Event<T>},
 	}
 );
 
 parameter_types! {
 	pub const BlockHashCount: u64 = 250;
 	pub const SS58Prefix: u8 = 42;
+	pub BlockWeights: frame_system::limits::BlockWeights =
+		frame_system::limits::BlockWeights::simple_max(1_000_000);
 }
 
 impl frame_system::Config for Test {
@@ -55,6 +70,20 @@ impl frame_system::Config for Test {
 }
 
 parameter_types! {
+	pub MaximumSchedulerWeight: Weight = Perbill::from_percent(80) * BlockWeights::get().max_block;
+}
+impl pallet_scheduler::Config for Test {
+	type Event = Event;
+	type Origin = Origin;
+	type PalletsOrigin = OriginCaller;
+	type Call = Call;
+	type MaximumWeight = MaximumSchedulerWeight;
+	type ScheduleOrigin = EnsureRoot<u64>;
+	type MaxScheduledPerBlock = ();
+	type WeightInfo = ();
+}
+
+parameter_types! {
 	pub const AmountPlayers: u8 = 2;
 	pub const AmountBrackets: u8 = 3;
 }
@@ -68,10 +97,20 @@ impl pallet_matchmaker::Config for Test {
 
 impl pallet_rpsonline::Config for Test {
 	type Event = Event;
+	type Randomness = TestRandomness<Self>;
+	type Proposal = Call;
+	type Scheduler = Scheduler;
+	type PalletsOrigin = OriginCaller;
 	type MatchMaker = MatchMaker;
 }
 
-// Build genesis storage according to the mock runtime.
+/// Build genesis storage according to the mock runtime.
 pub fn new_test_ext() -> sp_io::TestExternalities {
-	frame_system::GenesisConfig::default().build_storage::<Test>().unwrap().into()
+	//frame_system::GenesisConfig::default().build_storage::<Test>().unwrap().into()
+	let t = GenesisConfig {
+			system: Default::default(),
+			scheduler: Default::default(),
+			rps_online: Default::default(),
+		}.build_storage().unwrap();
+		t.into()
 }

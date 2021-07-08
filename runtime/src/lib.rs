@@ -37,6 +37,9 @@ pub use frame_support::{
 		constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
 	},
 };
+use frame_system::{
+	EnsureRoot
+};
 use pallet_transaction_payment::CurrencyAdapter;
 
 /// Import the rpsonline pallet.
@@ -268,6 +271,23 @@ impl pallet_sudo::Config for Runtime {
 }
 
 parameter_types! {
+	pub MaximumSchedulerWeight: Weight = Perbill::from_percent(80) *
+		BlockWeights::get().max_block;
+	pub const MaxScheduledPerBlock: u32 = 50;
+}
+
+impl pallet_scheduler::Config for Runtime {
+	type Event = Event;
+	type Origin = Origin;
+	type PalletsOrigin = OriginCaller;
+	type Call = Call;
+	type MaximumWeight = MaximumSchedulerWeight;
+	type ScheduleOrigin = EnsureRoot<AccountId>;
+	type MaxScheduledPerBlock = MaxScheduledPerBlock;
+	type WeightInfo = pallet_scheduler::weights::SubstrateWeight<Runtime>;
+}
+
+parameter_types! {
 	pub const AmountPlayers: u8 = 2;
 	pub const AmountBrackets: u8 = 3;
 }
@@ -282,6 +302,10 @@ impl pallet_matchmaker::Config for Runtime {
 /// Configure the pallet-rpsonline in pallets/rpsonline.
 impl pallet_rpsonline::Config for Runtime {
 	type Event = Event;
+	type Randomness = RandomnessCollectiveFlip;
+	type Proposal = Call;
+	type Scheduler = Scheduler;
+	type PalletsOrigin = OriginCaller;
 	type MatchMaker = MatchMaker;
 }
 
@@ -301,10 +325,13 @@ construct_runtime!(
 		TransactionPayment: pallet_transaction_payment::{Pallet, Storage},
 		Sudo: pallet_sudo::{Pallet, Call, Config<T>, Storage, Event<T>},
 
+		// Scheduler for game events
+		Scheduler: pallet_scheduler::{Pallet, Call, Storage, Event<T>},
+
 		// Polkadot Play [JTON Match Maker]
 		MatchMaker: pallet_matchmaker::{Pallet, Call, Storage, Event<T>},
 		// Polkadot Play [RPS Online]
-		RPSOnline: pallet_rpsonline::{Pallet, Call, Storage, Event<T>},
+		RPSOnline: pallet_rpsonline::{Pallet, Call, Config<T>, Storage, Event<T>},
 	}
 );
 

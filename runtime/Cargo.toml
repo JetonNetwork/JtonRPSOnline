@@ -43,6 +43,7 @@ std = [
     'pallet-timestamp/std',
     'pallet-transaction-payment-rpc-runtime-api/std',
     'pallet-transaction-payment/std',
+    'pallet-scheduler/std',
     'sp-api/std',
     'sp-block-builder/std',
     'sp-consensus-aura/std',
@@ -157,6 +158,12 @@ tag = 'monthly-2021-07'
 version = '3.0.0'
 
 [dependencies.pallet-transaction-payment-rpc-runtime-api]
+default-features = false
+git = 'https://github.com/paritytech/substrate.git'
+tag = 'monthly-2021-07'
+version = '3.0.0'
+
+[dependencies.pallet-scheduler]
 default-features = false
 git = 'https://github.com/paritytech/substrate.git'
 tag = 'monthly-2021-07'
