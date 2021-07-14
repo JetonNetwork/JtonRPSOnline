@@ -31,6 +31,68 @@ mod tests;
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
 
+const RPSONLINE_ID: LockIdentifier = *b"rps-fire";
+
+#[derive(Debug, Encode, Decode, Clone, PartialEq)]
+pub enum PhaseState<AccountId> {
+	None,
+	Move,
+	Choose(Vec<AccountId>),
+	Reveal(Vec<AccountId>),
+}
+
+impl<AccountId> Default for PhaseState<AccountId> { fn default() -> Self { Self::None } }
+
+#[derive(Debug, Encode, Decode, Clone, PartialEq)]
+pub enum GameState<AccountId> {
+	None,
+	Initiate(Vec<AccountId>),
+	Prepare(Vec<AccountId>),
+	Running(AccountId),
+	Finished(AccountId),
+}
+impl<AccountId> Default for GameState<AccountId> { fn default() -> Self { Self::None } }
+
+#[derive(Debug, Encode, Decode, Clone, PartialEq)]
+pub enum Weapon {
+	None,
+	Rock,
+	Paper,
+	Scissor,
+	Trap,
+	King,
+}
+impl Default for Weapon { fn default() -> Self { Self::None } }
+
+#[derive(Debug, Encode, Decode, Clone, PartialEq)]
+pub enum NinjaState<Hash> {
+	None,
+	Stealth(Hash),
+	Reveal(Weapon),
+	Dead,
+}
+impl<Hash> Default for NinjaState<Hash> { fn default() -> Self { Self::None } }
+
+/// RPS Online board structure containing two players and the board
+#[derive(Encode, Decode, Default, Clone, PartialEq)]
+#[cfg_attr(feature = "std", derive(Debug))]
+pub struct Game<Hash, AccountId, BlockNumber> {
+	id: Hash,
+	players: Vec<AccountId>,
+	ninjas: [Vec<NinjaState<Hash>>; 2],
+	board: [[u8; 6]; 7],
+	last_move: (u8, u8),
+	last_turn: BlockNumber,
+	phase_state: PhaseState<AccountId>,
+	game_state: GameState<AccountId>,
+}
+
+const PLAYER_1: u8 = 1;
+const PLAYER_2: u8 = 2;
+const MAX_GAMES_PER_BLOCK: u8 = 10;
+const MAX_BLOCKS_PER_TURN: u8 = 10;
+const CLEANUP_BOARDS_AFTER: u8 = 20;
+
 #[frame_support::pallet]
 pub mod pallet {
 	use frame_support::{dispatch::DispatchResult, pallet_prelude::*};
@@ -80,6 +142,16 @@ pub mod pallet {
 	#[pallet::storage]
 	pub type Nonce<T: Config> = StorageValue<_, u64, ValueQuery, NonceDefault<T>>;
 
+	#[pallet::storage]
+	#[pallet::getter(fn games)]
+	/// Store all games that are currently being played.
+	pub type Games<T: Config> = StorageMap<_, Identity, T::Hash, Game<T::Hash, T::AccountId, T::BlockNumber>, ValueQuery>;
+
+	#[pallet::storage]
+	#[pallet::getter(fn player_game)]
+	/// Store players active games, currently only one game per player allowed.
+	pub type PlayerGame<T: Config> = StorageMap<_, Identity, T::AccountId, T::Hash, ValueQuery>;
+
 	// The genesis config type.
 	#[pallet::genesis_config]
 	pub struct GenesisConfig<T: Config> {
@@ -113,6 +185,8 @@ pub mod pallet {
 		/// Event documentation should end with an array that provides descriptive names for event
 		/// parameters. [something, who]
 		SomethingStored(u32, T::AccountId),
+		/// A new game got created.
+		NewGame(T::Hash),
 	}
 
 	// Errors inform users that something went wrong.
@@ -122,6 +196,69 @@ pub mod pallet {
 		NoneValue,
 		/// Errors should have helpful documentation associated with them.
 		StorageOverflow,
+		/// Only founder is allowed to do this.
+		OnlyFounderAllowed,
+		/// Player can't play against them self.
+		NoFakePlay,
+		/// Player has already a game.
+		PlayerHasGame,
+		/// Player has no active game or there is no such game.
+		GameDoesntExist,
+		/// Player choice already exist.
+		PlayerChoiceExist,
+		/// Player choice doesn't exist.
+		PlayerChoiceDoesntExist,
+		/// Bad behaviour, trying to cheat?
+		BadBehaviour,
+		/// Player is already queued.
+		AlreadyQueued,
+	}
+
+	#[pallet::hooks]
+	impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
+		// `on_initialize` is executed at the beginning of the block before any extrinsic are
+		// dispatched.
+		//
+		// This function must return the weight consumed by `on_initialize` and `on_finalize`.
+		fn on_initialize(_: T::BlockNumber) -> Weight {
+			// Anything that needs to be done at the start of the block.
+			// We don't do anything here.
+			
+			// initial weights
+			let mut tot_weights = 10_000;
+			for _i in 0..MAX_GAMES_PER_BLOCK {
+				// try to create a match till we reached max games or no more matches available
+				let result = T::MatchMaker::try_match();
+				// if result is not empty we have a valid match
+				if !result.is_empty() {
+					// Create new game
+					let _game_id = Self::create_game(result);
+					// weights need to be adjusted
+					tot_weights = tot_weights + T::DbWeight::get().reads_writes(1,1);
+					continue;
+				}
+				break;
+			}
+
+			// return standard weigth for trying to fiond a match
+			return tot_weights
+		}
+
+		// `on_finalize` is executed at the end of block after all extrinsic are dispatched.
+		fn on_finalize(_n: BlockNumberFor<T>) {
+			// Perform necessary data/state clean up here.
+		}
+
+		// A runtime code run after every block and have access to extended set of APIs.
+		//
+		// For instance you can generate extrinsics for the upcoming produced block.
+		fn offchain_worker(_n: T::BlockNumber) {
+			// We don't do anything here.
+			// but we could dispatch extrinsic (transaction/unsigned/inherent) using
+			// sp_io::submit_extrinsic.
+			// To see example on offchain worker, please refer to example-offchain-worker pallet
+		 	// accompanied in this repository.
+		}
 	}
 
 	// Dispatchable functions allows users to interact with the pallet and invoke state changes.
@@ -165,6 +302,93 @@ pub mod pallet {
 				},
 			}
 		}
+
+		/// Create game for two players
+		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
+		pub fn new_game(origin: OriginFor<T>, opponent: T::AccountId) -> DispatchResult {
+			
+			let sender = ensure_signed(origin)?;
+
+			// Don't allow playing against yourself.
+			ensure!(sender != opponent, Error::<T>::NoFakePlay);
+
+			// Don't allow queued player to create a game.
+			ensure!(!T::MatchMaker::is_queued(sender.clone()), Error::<T>::AlreadyQueued);
+			ensure!(!T::MatchMaker::is_queued(opponent.clone()), Error::<T>::AlreadyQueued);
+
+			// Make sure players have no board open.
+			ensure!(!PlayerGame::<T>::contains_key(&sender), Error::<T>::PlayerHasGame);
+			ensure!(!PlayerGame::<T>::contains_key(&opponent), Error::<T>::PlayerHasGame);
+			
+			let mut players = Vec::new();
+			players.push(sender.clone());
+			players.push(opponent.clone());
+
+			// Create new game
+			let _game_id = Self::create_game(players);
+
+			Ok(())
+		}
+
+		/// Queue sender up for a game, ranking brackets
+		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
+		pub fn queue(origin: OriginFor<T>) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			// Make sure player has no board open.
+			ensure!(!PlayerGame::<T>::contains_key(&sender), Error::<T>::PlayerHasGame);
+
+			let bracket: u8 = 0;
+			// Add player to queue, duplicate check is done in matchmaker.
+			if !T::MatchMaker::add_queue(sender, bracket) {
+				return Err(Error::<T>::AlreadyQueued)?
+			} 
+
+			Ok(())
+		}
+
+		/// Empty all brackets, this is a founder only extrinsic.
+		#[pallet::weight(10_000 + T::DbWeight::get().reads_writes(1,1))]
+		pub fn empty_queue(origin: OriginFor<T>) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			// Make sure sender is founder.
+			ensure!(sender == Self::founder_key().unwrap(), Error::<T>::OnlyFounderAllowed);
+
+			// Empty queues
+			T::MatchMaker::all_empty_queue();
+
+			Ok(())
+		}
+
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
+		pub fn initiate(origin: OriginFor<T>) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			// Make sure player has a running game.
+			ensure!(PlayerGame::<T>::contains_key(&sender), Error::<T>::GameDoesntExist);
+			let game_id = Self::player_game(&sender);
+
+			// Make sure game exists.
+			ensure!(Games::<T>::contains_key(&game_id), Error::<T>::GameDoesntExist);
+
+			// get players game
+			let game = Self::games(&game_id);
+
+			// check if we have correct state
+			if let GameState::Initiate(_) = game.game_state {
+				// check we have the correct state
+			} else {
+				Err(Error::<T>::BadBehaviour)?
+			}
+
+			// game state change
+			if !Self::game_state_change(sender, game) {
+				Err(Error::<T>::BadBehaviour)?
+			}
+				
+			Ok(())		
+		}
 	}
 }
 
@@ -187,5 +411,100 @@ impl<T: Config> Pallet<T> {
 		let seed = <[u8; 32]>::decode(&mut TrailingZeroInput::new(seed.as_ref()))
 			.expect("input is padded with zeroes; qed");
 		return (seed, &sender, Self::encode_and_update_nonce()).using_encoded(T::Hashing::hash);
+	}
+
+	fn create_game(
+		players: Vec<T::AccountId>
+	) -> T::Hash {
+
+		// get a random hash as board id
+		let game_id = Self::generate_random_hash(b"create", players[0].clone());
+
+		// get current blocknumber
+		let block_number = <frame_system::Pallet<T>>::block_number();
+
+		// create a new empty game
+		let game: Game<T::Hash, T::AccountId, T::BlockNumber> = Game {
+			id: game_id,
+			players: Vec::new(),
+			ninjas: [Vec::new(),Vec::new()],
+			board: [[u8::MAX; 6]; 7],
+			last_move: (u8::MAX, u8::MAX),
+			last_turn: 0u32.into(),
+			phase_state: PhaseState::None,
+			game_state: GameState::Initiate(players.clone()),
+		};
+
+		// insert conenction for each player with the game
+		for player in &players {
+			<PlayerGame<T>>::insert(player, game_id);
+		}
+		
+		// emit event for a new game creation
+		Self::deposit_event(Event::NewGame(game_id));
+
+		game_id
+	}
+
+	fn try_remove(
+		player: T::AccountId,
+		players: &mut Vec<T::AccountId>
+	) -> bool {
+		if let Some(p) = players.iter().position(|x| *x == player) {
+			// remove player from vec
+			players.swap_remove(p);
+			return true;
+		} 
+		
+		false
+	}
+
+	fn game_state_change(
+		player: T::AccountId,
+		mut game: Game<T::Hash, T::AccountId, T::BlockNumber>
+	) -> bool {
+
+		match game.game_state.clone() {
+
+			GameState::Initiate(mut players) => {
+				if !Self::try_remove(player, &mut players) {
+					return false;
+				}
+				// check if all players have initiated
+				if players.is_empty() {
+					//game.match_state = GameState::Prepare(game.players.clone());
+				} else {
+					//game.match_state = GameState::Initiate(players);
+				}				
+			},
+
+			GameState::Prepare(mut players) => {
+				if !Self::try_remove(player, &mut players) {
+					return false;
+				}
+				// check if all players have choosen
+				if players.is_empty() {
+					//game.match_state = GameState::Reveal(game.players.clone());
+				} else {
+					//game.match_state = GameState::Choose(players);
+				}
+			},
+
+			GameState::Running(mut player) => {
+
+			},
+
+			GameState::Finished(mut player) => {
+
+			},
+			_ => return false,
+		}
+		
+		// get current blocknumber
+		let block_number = <frame_system::Pallet<T>>::block_number();
+		game.last_turn = block_number;
+		<Games<T>>::insert(game.id, game);
+		
+		true
 	}
 }
