@@ -21,12 +21,6 @@ git = 'https://github.com/paritytech/substrate.git'
 tag = 'monthly-2021-07'
 version = '3.0.0'
 
-[dev-dependencies.sp-io]
-default-features = false
-git = 'https://github.com/paritytech/substrate.git'
-tag = 'monthly-2021-07'
-version = '3.0.0'
-
 [dev-dependencies.frame-support-test]
 default-features = false
 git = 'https://github.com/paritytech/substrate.git'
@@ -44,6 +38,7 @@ default = ['std']
 runtime-benchmarks = ['frame-benchmarking']
 std = [
 	'codec/std',
+	'sp-io/std',
 	'sp-std/std',
 	'sp-runtime/std',
 	'frame-support/std',
@@ -58,6 +53,12 @@ default-features = false
 features = ['derive']
 package = 'parity-scale-codec'
 version = '2.0.0'
+
+[dependencies.sp-io]
+default-features = false
+git = 'https://github.com/paritytech/substrate.git'
+tag = 'monthly-2021-07'
+version = '3.0.0'
 
 [dependencies.sp-std]
 default-features = false

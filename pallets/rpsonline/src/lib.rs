@@ -12,6 +12,7 @@ use frame_support::{
 use sp_runtime::{
 	traits::{Hash, Dispatchable, TrailingZeroInput}
 };
+use sp_io::hashing::blake2_256;
 use sp_std::vec::{
 	Vec
 };
@@ -210,6 +211,8 @@ pub mod pallet {
 		PlayerChoiceDoesntExist,
 		/// Bad behaviour, trying to cheat?
 		BadBehaviour,
+		/// Bad setup, trying to cheat?
+		BadSetup,
 		/// Player is already queued.
 		AlreadyQueued,
 	}
@@ -389,6 +392,59 @@ pub mod pallet {
 				
 			Ok(())		
 		}
+
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
+		pub fn prepare(origin: OriginFor<T>, setup: [u8;14], salt: [u8; 32]) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			// Make sure player has a running game.
+			ensure!(PlayerGame::<T>::contains_key(&sender), Error::<T>::GameDoesntExist);
+			let game_id = Self::player_game(&sender);
+
+			// Make sure game exists.
+			ensure!(Games::<T>::contains_key(&game_id), Error::<T>::GameDoesntExist);
+
+			// get players game
+			let mut game = Self::games(&game_id);
+
+			// get index of current player
+			let index = game.players.iter().position(|p| *p == sender);
+	
+			// setup ninjas for fight
+			let mut ninjas: Vec<NinjaState<T::Hash>> = Vec::new();
+			let mut check: [u8;14] = [0u8;14];
+			for i in 0..14 {
+				match setup[i] {
+					0 => { ninjas.push(NinjaState::Stealth(Self::hash_choice(salt, i, Weapon::King))) },
+					1 => { ninjas.push(NinjaState::Stealth(Self::hash_choice(salt, i, Weapon::Trap))) },
+					2|3|4|5 => { ninjas.push(NinjaState::Stealth(Self::hash_choice(salt, i, Weapon::Rock))) },
+					6|7|8|9 => { ninjas.push(NinjaState::Stealth(Self::hash_choice(salt, i, Weapon::Paper))) },
+					10|11|12|13 => { ninjas.push(NinjaState::Stealth(Self::hash_choice(salt, i, Weapon::Scissor))) },
+					// out of range u8 leads to error
+					_ => Err(Error::<T>::BadSetup)?,
+				}
+				// check occurance maximum one, otherwise leads to error
+				if check[setup[i] as usize] == 0 {
+					check[setup[i] as usize] = 1;
+				} else {
+					Err(Error::<T>::BadSetup)?
+				}
+			}
+
+			// check if we have correct state
+			if let GameState::Initiate(_) = game.game_state {
+				// check we have the correct state
+			} else {
+				Err(Error::<T>::BadBehaviour)?
+			}
+
+			// game state change
+			if !Self::game_state_change(sender, game) {
+				Err(Error::<T>::BadBehaviour)?
+			}
+				
+			Ok(())		
+		}
 	}
 }
 
@@ -411,6 +467,19 @@ impl<T: Config> Pallet<T> {
 		let seed = <[u8; 32]>::decode(&mut TrailingZeroInput::new(seed.as_ref()))
 			.expect("input is padded with zeroes; qed");
 		return (seed, &sender, Self::encode_and_update_nonce()).using_encoded(T::Hashing::hash);
+	}
+
+	fn hash_choice(
+		salt: [u8; 32],
+		position: usize,
+		choice: Weapon
+	) -> T::Hash {
+		let mut choice_value = salt;
+		choice_value[30] = position as u8;
+		choice_value[31] = choice as u8;
+		let choice_hashed = blake2_256(&choice_value);
+		// return hashed choice
+		choice_hashed.using_encoded(T::Hashing::hash)
 	}
 
 	fn create_game(
@@ -472,9 +541,9 @@ impl<T: Config> Pallet<T> {
 				}
 				// check if all players have initiated
 				if players.is_empty() {
-					//game.match_state = GameState::Prepare(game.players.clone());
+					game.game_state = GameState::Prepare(game.players.clone());
 				} else {
-					//game.match_state = GameState::Initiate(players);
+					game.game_state = GameState::Initiate(players);
 				}				
 			},
 
@@ -484,9 +553,9 @@ impl<T: Config> Pallet<T> {
 				}
 				// check if all players have choosen
 				if players.is_empty() {
-					//game.match_state = GameState::Reveal(game.players.clone());
+					game.game_state = GameState::Running(game.players[0].clone());
 				} else {
-					//game.match_state = GameState::Choose(players);
+					game.game_state = GameState::Prepare(players);
 				}
 			},
 
