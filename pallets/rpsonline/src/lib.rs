@@ -34,6 +34,10 @@ mod benchmarking;
 
 const RPSONLINE_ID: LockIdentifier = *b"rps-fire";
 
+/// Implementations of some helper traits passed into runtime modules as associated types.
+pub mod rpscore;
+use rpscore::{Logic};
+
 #[derive(Debug, Encode, Decode, Clone, PartialEq)]
 pub enum PhaseState<AccountId> {
 	None,
@@ -408,8 +412,8 @@ pub mod pallet {
 			let mut game = Self::games(&game_id);
 
 			// get index of current player
-			let index = game.players.iter().position(|p| *p == sender);
-	
+			let index = game.players.iter().position(|p| *p == sender).unwrap();
+			
 			// setup ninjas for fight
 			let mut ninjas: Vec<NinjaState<T::Hash>> = Vec::new();
 			let mut check: [u8;14] = [0u8;14];
@@ -430,6 +434,9 @@ pub mod pallet {
 					Err(Error::<T>::BadSetup)?
 				}
 			}
+
+			// set player ninjas in game.
+			game.ninjas[index] = ninjas;
 
 			// check if we have correct state
 			if let GameState::Initiate(_) = game.game_state {
