@@ -87,7 +87,7 @@ pub struct Game<Hash, AccountId, BlockNumber> {
 	ninjas: [Vec<NinjaState<Hash>>; 2],
 	board: [[u8; 6]; 7],
 	last_move: (u8, u8),
-	last_turn: BlockNumber,
+	last_action: BlockNumber,
 	phase_state: PhaseState<AccountId>,
 	game_state: GameState<AccountId>,
 }
@@ -506,10 +506,13 @@ impl<T: Config> Pallet<T> {
 			ninjas: [Vec::new(),Vec::new()],
 			board: [[u8::MAX; 6]; 7],
 			last_move: (u8::MAX, u8::MAX),
-			last_turn: 0u32.into(),
+			last_action: block_number,
 			phase_state: PhaseState::None,
 			game_state: GameState::Initiate(players.clone()),
 		};
+
+		// insert the new game into the storage
+		<Games<T>>::insert(game_id, game);
 
 		// insert conenction for each player with the game
 		for player in &players {
@@ -578,7 +581,7 @@ impl<T: Config> Pallet<T> {
 		
 		// get current blocknumber
 		let block_number = <frame_system::Pallet<T>>::block_number();
-		game.last_turn = block_number;
+		game.last_action = block_number;
 		<Games<T>>::insert(game.id, game);
 		
 		true

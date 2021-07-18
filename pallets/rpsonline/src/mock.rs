@@ -114,3 +114,27 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
 		}.build_storage().unwrap();
 		t.into()
 }
+
+pub fn run_next_block() {
+	run_to_block(System::block_number() + 1);
+}
+
+/// Run until a particular block.
+pub fn run_to_block(n: u64) {
+	while System::block_number() < n {
+
+		if System::block_number() > 1 {
+			// mock on_finalize
+			System::on_finalize(System::block_number());
+			Scheduler::on_finalize(System::block_number());
+			RPSOnline::on_finalize(System::block_number());
+		}
+
+		System::set_block_number(System::block_number() + 1);
+		
+		// mock on_initialize
+		System::on_initialize(System::block_number());
+		Scheduler::on_initialize(System::block_number());
+		RPSOnline::on_initialize(System::block_number());
+	}
+}
