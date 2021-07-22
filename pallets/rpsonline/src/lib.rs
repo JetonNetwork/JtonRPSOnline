@@ -439,7 +439,7 @@ pub mod pallet {
 			game.ninjas[index] = ninjas;
 
 			// check if we have correct state
-			if let GameState::Initiate(_) = game.game_state {
+			if let GameState::Prepare(_) = game.game_state {
 				// check we have the correct state
 			} else {
 				Err(Error::<T>::BadBehaviour)?
@@ -502,7 +502,7 @@ impl<T: Config> Pallet<T> {
 		// create a new empty game
 		let game: Game<T::Hash, T::AccountId, T::BlockNumber> = Game {
 			id: game_id,
-			players: Vec::new(),
+			players: players.clone(),
 			ninjas: [Vec::new(),Vec::new()],
 			board: [[u8::MAX; 6]; 7],
 			last_move: (u8::MAX, u8::MAX),
