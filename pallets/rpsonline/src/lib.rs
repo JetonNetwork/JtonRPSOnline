@@ -485,6 +485,58 @@ pub mod pallet {
 			Ok(())		
 		}
 
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
+		pub fn reveal_position(origin: OriginFor<T>, ninja: u8, weapon: Weapon, salt: [u8; 32]) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			// Make sure ninja is in range
+			ensure!(ninja < 14, Error::<T>::BadBehaviour);
+
+			// Make sure player has a running game.
+			ensure!(PlayerGame::<T>::contains_key(&sender), Error::<T>::GameDoesntExist);
+			let game_id = Self::player_game(&sender);
+
+			// Make sure game exists.
+			ensure!(Games::<T>::contains_key(&game_id), Error::<T>::GameDoesntExist);
+
+			// get players game
+			let mut game = Self::games(&game_id);
+
+			// Make sure game is in correct phase.
+			ensure!(matches!(game.phase_state,PhaseState::Reveal(_)), Error::<T>::WrongPhaseState);
+
+			// get index of current player
+			let index = game.players.iter().position(|p| *p == sender).unwrap();
+
+			// check if we have correct state
+			if let GameState::Running(current_player) = game.game_state.clone() {
+				let reveal_position;
+				// check we have the correct state
+				if current_player == sender {
+					reveal_position = game.board[game.last_move[0] as usize][game.last_move[1] as usize];
+				} else {
+					reveal_position = game.board[game.last_move[3] as usize][game.last_move[4] as usize];
+				}
+				// check if ninja is from player
+				if reveal_position / 16 != index as u8 {
+					Err(Error::<T>::BadBehaviour)?
+				}
+			} else {
+				Err(Error::<T>::BadBehaviour)?
+			}
+
+
+
+
+
+			// game state change and persisting logic
+			if !Self::game_state_change(sender, game) {
+				Err(Error::<T>::BadBehaviour)?
+			}
+				
+			Ok(())		
+		}
+
 	}
 }
 
