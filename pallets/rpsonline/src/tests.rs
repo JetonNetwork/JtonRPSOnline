@@ -89,7 +89,7 @@ fn try_simple_rps_game() {
 		assert_ok!(RPSOnline::new_game(Origin::signed(player_1), player_2));
 		let game_id = RPSOnline::player_game(player_1);
 		let game = RPSOnline::games(game_id);
-		matches!(game.game_state, GameState::Initiate(_));
+		assert!(matches!(game.game_state, GameState::Initiate(_)));
 		assert_eq!(game.last_action, current_block);
 
 		run_next_block();
@@ -98,7 +98,7 @@ fn try_simple_rps_game() {
 		// Initiate phase
 		assert_ok!(RPSOnline::initiate(Origin::signed(player_1)));
 		let game = RPSOnline::games(game_id);
-		matches!(game.game_state, GameState::Initiate(_));
+		assert!(matches!(game.game_state, GameState::Initiate(_)));
 		assert_eq!(game.last_action, current_block);
 
 		run_next_block();
@@ -106,7 +106,7 @@ fn try_simple_rps_game() {
 
 		assert_ok!(RPSOnline::initiate(Origin::signed(player_2)));
 		let game = RPSOnline::games(game_id);
-		matches!(game.game_state, GameState::Prepare(_));
+		assert!(matches!(game.game_state, GameState::Prepare(_)));
 		assert_eq!(game.last_action, current_block);
 
 		run_next_block();
@@ -114,7 +114,7 @@ fn try_simple_rps_game() {
 
 		assert_ok!(RPSOnline::prepare(Origin::signed(player_2), setup_2, salt_2));
 		let game = RPSOnline::games(game_id);
-		matches!(game.game_state, GameState::Prepare(_));
+		assert!(matches!(game.game_state, GameState::Prepare(_)));
 		assert_eq!(game.last_action, current_block);
 
 		run_next_block();
@@ -122,8 +122,56 @@ fn try_simple_rps_game() {
 
 		assert_ok!(RPSOnline::prepare(Origin::signed(player_1), setup_1, salt_1));
 		let game = RPSOnline::games(game_id);
-		matches!(game.game_state, GameState::Running(_));
+		assert!(matches!(game.game_state, GameState::Running(_)));
 		assert_eq!(game.last_action, current_block);
 
+		run_next_block();
+		current_block = current_block + 1;
+
+		assert_ok!(RPSOnline::play_move(Origin::signed(player_1), [0u8,1u8], Direction::Forward));
+		let game = RPSOnline::games(game_id);
+		assert!(matches!(game.game_state, GameState::Running(_)));
+		assert!(matches!(game.phase_state, PhaseState::Move));
+		assert_eq!(game.last_action, current_block);
+		assert_eq!(game.board[0][1], u8::MAX);
+		assert_eq!(game.board[0][2], 7u8);
+
+		run_next_block();
+		current_block = current_block + 1;
+
+		assert_ok!(RPSOnline::play_move(Origin::signed(player_2), [0u8,4u8], Direction::Forward));
+		let game = RPSOnline::games(game_id);
+		assert!(matches!(game.game_state, GameState::Running(_)));
+		if let GameState::Running(next_player) = game.game_state {
+			assert_eq!(next_player, player_1);
+		} else {
+			assert!(false);
+		}
+		assert!(matches!(game.phase_state, PhaseState::Move));
+		assert_eq!(game.last_action, current_block);
+		assert_eq!(game.board[0][4], u8::MAX);
+		assert_eq!(game.board[0][3], 29u8);
+		
+		run_next_block();
+		current_block = current_block + 1;
+
+		assert_ok!(RPSOnline::play_move(Origin::signed(player_1), [0u8,2u8], Direction::Forward));
+		let game = RPSOnline::games(game_id);
+		assert!(matches!(game.game_state, GameState::Running(_)));
+		if let GameState::Running(next_player) = game.game_state {
+			assert_eq!(next_player, player_1);
+		} else {
+			assert!(false);
+		}
+		assert!(matches!(game.phase_state, PhaseState::Reveal(_)));
+		if let PhaseState::Reveal(players) = game.phase_state {
+			assert_eq!(players[0], player_1);
+			assert_eq!(players[1], player_2);
+		} else {
+			assert!(false);
+		}
+		assert_eq!(game.last_action, current_block);
+
+		
 	});
 }

@@ -36,7 +36,7 @@ const RPSONLINE_ID: LockIdentifier = *b"rps-fire";
 
 /// Implementations of some helper traits passed into runtime modules as associated types.
 pub mod rpscore;
-use rpscore::{Logic};
+use rpscore::{Logic, Direction, Weapon};
 
 #[derive(Debug, Encode, Decode, Clone, PartialEq)]
 pub enum PhaseState<AccountId> {
@@ -58,16 +58,6 @@ pub enum GameState<AccountId> {
 }
 impl<AccountId> Default for GameState<AccountId> { fn default() -> Self { Self::None } }
 
-#[derive(Debug, Encode, Decode, Clone, PartialEq)]
-pub enum Weapon {
-	None,
-	Rock,
-	Paper,
-	Scissor,
-	Trap,
-	King,
-}
-impl Default for Weapon { fn default() -> Self { Self::None } }
 
 #[derive(Debug, Encode, Decode, Clone, PartialEq)]
 pub enum NinjaState<Hash> {
@@ -86,7 +76,7 @@ pub struct Game<Hash, AccountId, BlockNumber> {
 	players: Vec<AccountId>,
 	ninjas: [Vec<NinjaState<Hash>>; 2],
 	board: [[u8; 6]; 7],
-	last_move: (u8, u8),
+	last_move: [u8;5],
 	last_action: BlockNumber,
 	phase_state: PhaseState<AccountId>,
 	game_state: GameState<AccountId>,
@@ -219,6 +209,8 @@ pub mod pallet {
 		BadSetup,
 		/// Player is already queued.
 		AlreadyQueued,
+		/// Wrong phase state for action.
+		WrongPhaseState,
 	}
 
 	#[pallet::hooks]
@@ -397,6 +389,9 @@ pub mod pallet {
 			Ok(())		
 		}
 
+
+		// TODO: Remove salt and replace through already computed hashes, once everything is running.
+		// pub fn prepare(origin: OriginFor<T>, setup: [T::Hash;14]) -> DispatchResult {
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
 		pub fn prepare(origin: OriginFor<T>, setup: [u8;14], salt: [u8; 32]) -> DispatchResult {
 			let sender = ensure_signed(origin)?;
@@ -445,13 +440,51 @@ pub mod pallet {
 				Err(Error::<T>::BadBehaviour)?
 			}
 
-			// game state change
+			// game state change and persisting logic
 			if !Self::game_state_change(sender, game) {
 				Err(Error::<T>::BadBehaviour)?
 			}
 				
 			Ok(())		
 		}
+
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
+		pub fn play_move(origin: OriginFor<T>, position: [u8;2], direction: Direction) -> DispatchResult {
+			let sender = ensure_signed(origin)?;
+
+			// Make sure position is in range
+			ensure!(Logic::position(position), Error::<T>::BadBehaviour);
+
+			// Make sure player has a running game.
+			ensure!(PlayerGame::<T>::contains_key(&sender), Error::<T>::GameDoesntExist);
+			let game_id = Self::player_game(&sender);
+
+			// Make sure game exists.
+			ensure!(Games::<T>::contains_key(&game_id), Error::<T>::GameDoesntExist);
+
+			// get players game
+			let mut game = Self::games(&game_id);
+
+			// Make sure game is in correct phase.
+			ensure!(game.phase_state == PhaseState::Move, Error::<T>::WrongPhaseState);
+
+			game.last_move = [position[0], position[1], direction as u8, u8::MAX, u8::MAX];
+
+			// check if we have correct state
+			if let GameState::Running(_) = game.game_state {
+				// check we have the correct state
+			} else {
+				Err(Error::<T>::BadBehaviour)?
+			}
+
+			// game state change and persisting logic
+			if !Self::game_state_change(sender, game) {
+				Err(Error::<T>::BadBehaviour)?
+			}
+				
+			Ok(())		
+		}
+
 	}
 }
 
@@ -504,8 +537,8 @@ impl<T: Config> Pallet<T> {
 			id: game_id,
 			players: players.clone(),
 			ninjas: [Vec::new(),Vec::new()],
-			board: [[u8::MAX; 6]; 7],
-			last_move: (u8::MAX, u8::MAX),
+			board: Logic::initialize(),
+			last_move: [u8::MAX, u8::MAX, u8::MAX, u8::MAX, u8::MAX],
 			last_action: block_number,
 			phase_state: PhaseState::None,
 			game_state: GameState::Initiate(players.clone()),
@@ -563,25 +596,137 @@ impl<T: Config> Pallet<T> {
 				}
 				// check if all players have choosen
 				if players.is_empty() {
+					game.phase_state = PhaseState::Move;
+					// TODO: Randomly choose starting player
 					game.game_state = GameState::Running(game.players[0].clone());
 				} else {
 					game.game_state = GameState::Prepare(players);
 				}
 			},
 
-			GameState::Running(mut player) => {
+			// turn by turn logic
+			GameState::Running(player_at_turn) => {
+
+				match game.phase_state.clone() {
+
+					// phase move state
+					PhaseState::Move => {
+
+						// Make sure it's current players turn
+						if player != player_at_turn {
+							return false;
+						}
+		
+						// get index of current player
+						let index = game.players.iter().position(|p| *p == player).unwrap();
+						let opponent_index = (index + 1) % 2;
+
+						// check if player has a ninja at that position, previously check for legit position Logic::position = true
+						let current_position = game.board[game.last_move[0] as usize][game.last_move[1] as usize];
+						if current_position / 16 != index as u8 {
+							return false;
+						}
+						let current_index = current_position - (index as u8 * 16);
+						
+						// check if player can move in that direction and get target position
+						let mut destination = [game.last_move[0], game.last_move[1]];
+						if !Logic::destination(index as u8, &mut destination, game.last_move[2]) {
+							return false;
+						}
+
+						// check target position for own ninja
+						let target_position = game.board[destination[0] as usize][destination[1] as usize];
+						if target_position / 16 == index as u8 {
+							return false;
+						}
+						let target_index = target_position - (opponent_index as u8 * 16);
+
+						// set move destination
+						game.last_move[3] = destination[0];
+						game.last_move[4] = destination[1];
+
+						// move ninja to target position, if empty
+						if target_position == u8::MAX {
+							game.board[destination[0] as usize][destination[1] as usize] = current_position;
+							game.board[game.last_move[0] as usize][game.last_move[1] as usize] = u8::MAX;
+						} else {
+							// opponent has a ninja at target position
+							let ninja = game.ninjas[index][current_index as usize].clone();
+							let opponent_ninja = game.ninjas[opponent_index][target_index as usize].clone();
+
+							let mut reveal_players: Vec<T::AccountId> = Vec::new();
+							let mut weapon_players: Vec<Weapon> = Vec::new();
+							
+							// if opponent ninja go into reveal mode if ninjas aren't revealed or in semi reveal mode if one of the is already revealed
+							match ninja {
+								NinjaState::Stealth(_) => reveal_players.push(game.players[index].clone()),
+								NinjaState::Reveal(weapon) => { weapon_players.push(weapon)}, // 
+								_ => return false,
+							}
+
+							match opponent_ninja {
+								NinjaState::Stealth(_) => reveal_players.push(game.players[opponent_index].clone()),
+								NinjaState::Reveal(weapon) => { weapon_players.push(weapon)}, // 
+								_ => return false,
+							}
+
+							// both ninjas are already unreavelead and can fight.
+							if reveal_players.len() > 0 {
+								game.phase_state = PhaseState::Reveal(reveal_players);
+							} else {
+								match Logic::combat(&weapon_players[0], &weapon_players[1]) {
+									0 => {
+										// attacker won the combat and moves into new position
+										game.ninjas[opponent_index][target_index as usize] = NinjaState::Dead;
+										game.board[game.last_move[0] as usize][game.last_move[1] as usize] = u8::MAX;
+										game.board[game.last_move[3] as usize][game.last_move[4] as usize] = current_position;
+										game.phase_state = PhaseState::Move;
+									},
+									1 => {
+										// defender won the combat and stys in position
+										game.ninjas[index][current_index as usize] = NinjaState::Dead;
+										game.board[game.last_move[0] as usize][game.last_move[1] as usize] = u8::MAX;
+										game.phase_state = PhaseState::Move;
+									},
+									_ => {
+										// even combat new weapon choose for both
+										game.phase_state = PhaseState::Choose(game.players.clone());
+									},
+								}
+							}
+							
+						}
+
+						// after successull play change current player to next
+						if game.phase_state == PhaseState::Move {
+							game.game_state = GameState::Running(game.players[(index + 1) % 2].clone());
+						}
+
+					},
+
+					// phase choose state
+					PhaseState::Choose(_) => {},
+					
+					// phase reveal state
+					PhaseState::Reveal(_) => {},
+
+					_ => {},
+				}
+
 
 			},
 
-			GameState::Finished(mut player) => {
-
+			GameState::Finished(_) => {
 			},
+
 			_ => return false,
 		}
 		
 		// get current blocknumber
 		let block_number = <frame_system::Pallet<T>>::block_number();
 		game.last_action = block_number;
+
+		// persist game
 		<Games<T>>::insert(game.id, game);
 		
 		true

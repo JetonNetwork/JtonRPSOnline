@@ -3,11 +3,23 @@ use codec::{Encode, Decode};
 
 #[derive(Debug, Encode, Decode, Clone, PartialEq)]
 pub enum Direction {
-    None,
-    Right,
-    Forward,
-    Left,
+    None = 0,
+    Left = 1,
+    Forward = 2,
+    Right = 3,
 }
+
+#[derive(Debug, Encode, Decode, Clone, PartialEq)]
+pub enum Weapon {
+	None,
+	Rock,
+	Paper,
+	Scissor,
+	Trap,
+	King,
+}
+impl Default for Weapon { fn default() -> Self { Self::None } }
+
 
 pub struct Logic {
 }
@@ -31,22 +43,57 @@ impl Logic {
         board
     }
 
-    pub fn destination(player: u8, position: &mut [u8; 2], direction: Direction) -> bool {
+    pub fn position(position: [u8;2]) -> bool {
 
-        if ((player == 0 && direction ==  Direction::Left) || (player == 1 && direction == Direction::Right)) && position[0] > 0 {
+        position[0] < 7 && position[1] < 6
+    }
+
+    pub fn destination(player: u8, position: &mut [u8; 2], direction: u8) -> bool {
+
+        if ((player == 0 && direction ==  1) || (player == 1 && direction == 3)) && position[0] > 0 {
             position[0] = position[0] - 1;
             return true;
-        } else if ((player == 0 && direction == Direction::Right) || (player == 1 && direction == Direction::Left)) && position[0] < 6 {
+        } else if ((player == 0 && direction == 3) || (player == 1 && direction == 1)) && position[0] < 6 {
             position[0] = position[0] + 1;
             return true;
-        } else if player == 0 && direction == Direction::Forward && position[1] < 5 {
+        } else if player == 0 && direction == 2 && position[1] < 5 {
             position[1] = position[1] + 1;
             return true;
-        } else if player == 1 && direction == Direction::Forward && position[1] > 0 {
+        } else if player == 1 && direction == 2 && position[1] > 0 {
             position[1] = position[1] - 1;
             return true;
         } else {
             return false;
+        }
+    }
+
+    pub fn combat(a: &Weapon, b: &Weapon) -> u8 {
+        match a {
+            Weapon::Rock => {
+                match b {
+                    Weapon::Rock => return u8::MAX,
+                    Weapon::Paper => return 1u8,
+                    Weapon::Scissor => return 0u8,
+                    _ => u8::MAX,
+                }
+            },
+            Weapon::Paper => {
+                match b {
+                    Weapon::Rock => return 0u8,
+                    Weapon::Paper => return u8::MAX,
+                    Weapon::Scissor => return 1u8,
+                    _ => u8::MAX,
+                }
+            },
+            Weapon::Scissor => {
+                match b {
+                    Weapon::Rock => return 1u8,
+                    Weapon::Paper => return 0u8,
+                    Weapon::Scissor => return u8::MAX,
+                    _ => u8::MAX,
+                }    
+            },
+            _ => u8::MAX,
         }
     }
 }
