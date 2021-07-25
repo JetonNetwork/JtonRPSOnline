@@ -1,8 +1,15 @@
-# Substrate Node Template
+![image](https://user-images.githubusercontent.com/17710198/126900516-d6ebe692-0cf6-47d7-97ff-b2e38190a716.png)
 
-[![Try on playground](https://img.shields.io/badge/Playground-Node_Template-brightgreen?logo=Parity%20Substrate)](https://playground.substrate.dev/?deploy=node-template)
+# JTON RPS Online Node Template
 
-A fresh FRAME-based [Substrate](https://www.substrate.io/) node, ready for hacking :rocket:
+This node contains the pallet rps online substrate and it's necessary pallet dependencies, the node is only for testing purpose and some parts are open for a malicious gameplay. The productive version is beeing worked on in a private repo as it is part of the Polkadot Play Mainnet launch.
+
+![image](https://user-images.githubusercontent.com/17710198/126900498-5890de1d-97b4-431c-82ce-fc0ffe8ba23c.png)
+
+
+Our project is looking for enthusiast and developers in the gaming blockchain space to join our team. Get in touch with us.
+
+hello@polkadotplay.com
 
 ## Getting Started
 
